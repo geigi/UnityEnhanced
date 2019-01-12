@@ -1,9 +1,14 @@
 ﻿#if UE_Photon
 using System;
+using System.Linq;
 using UE.Common;
 using UE.Instancing;
 using UnityEngine;
 using Object = UnityEngine.Object;
+#if PUN_2_OR_NEWER
+using Photon.Realtime;
+using Photon.Pun;
+#endif
 
 namespace UE.PUNNetworking
 {
@@ -29,10 +34,20 @@ namespace UE.PUNNetworking
             "Photon Sync is enabled for your target asset, but your Instance Key Object has no " +
             "PhotonView attached. You need to assign a PhotonView component or a parenting GameObject!";
         
-        public static string WARNING_ASSET_NOT_IN_RESOURCES_FOLDER => 
-            "Photon Sync is enabled for this asset, but it is not located at the root of a " +
-            "resources folder! This is required for sync to work.";
+//        public static string WARNING_ASSET_NOT_IN_RESOURCES_FOLDER => 
+//            "Photon Sync is enabled for this asset, but it is not located at the root of a " +
+//            "resources folder! This is required for sync to work.";
         
+        public static string WARNING_ASSET_NOT_IN_RESOURCES_FOLDER(string subfolder)
+        {
+            if (subfolder.Any())
+                return "Photon Sync is enabled for this asset, but it is not located at the root of a " +
+                       "resources folder (or Resources/" + subfolder + "/)! This is required for sync to work.";
+            
+            return "Photon Sync is enabled for this asset, but it is not located at the root of a " +
+                   "resources folder! This is required for sync to work.";
+        }
+
         /// <summary>
         /// Returns true when the given key meets the requirements for networking.
         /// </summary>

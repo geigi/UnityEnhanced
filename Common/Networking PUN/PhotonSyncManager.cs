@@ -1,12 +1,18 @@
 ﻿#if UE_Photon
-
 using System;
 using System.Collections.Generic;
-using Photon;
 using UE.Common;
 using UE.Events;
 using UE.StateMachine;
 using UnityEngine;
+
+#if PUN_2_OR_NEWER
+using ExitGames.Client.Photon;
+using Photon.Pun;
+using Photon.Realtime;
+#else
+using Photon;
+#endif
 
 namespace UE.PUNNetworking
 {
@@ -15,7 +21,12 @@ namespace UE.PUNNetworking
     /// within a Photon Networking system.
     /// </summary>
     [AddComponentMenu("Unity Enhanced/Networking Photon/PhotonSyncManager")]
-    public class PhotonSyncManager : PunBehaviour
+    public class PhotonSyncManager : 
+#if PUN_2_OR_NEWER
+        MonoBehaviourPunCallbacks, IOnEventCallback
+#else
+        PunBehaviour
+#endif
     {
         [SerializeField] private bool debugLog;
 
@@ -28,6 +39,30 @@ namespace UE.PUNNetworking
         private const byte EventRaiseUEVector2Event = 108;
         private const byte EventRaiseUEVector3Event = 109;
         private const byte EventRaiseUEQuaternionEvent = 110;
+
+        #region Resources Subfolder
+        
+        private const string EventSubfolder = "Events";
+        private const string StateMachineSubfolder = "States";
+        
+        /// <summary>
+        /// Returns the allowed resources subfolders of the given types.
+        /// </summary>
+        /// <param name="type"></param>
+        /// <returns></returns>
+        public static string GetResourcesSubfolder(Type type)
+        {
+            if (type == typeof(StateManager))
+                return StateMachineSubfolder;
+            if (type == typeof(GameEvent)
+                || type.IsSubClassOfGeneric(typeof(ParameterEvent<,>))
+            )
+                return EventSubfolder;
+
+            return "";
+        }
+        
+        #endregion
 
         #region StateMachineCache
 
@@ -44,7 +79,7 @@ namespace UE.PUNNetworking
 
             if (syncedStateManager.Contains(stateManager))
                 return;
-            
+
             syncedStateManager.Add(stateManager);
         }
 
@@ -53,18 +88,24 @@ namespace UE.PUNNetworking
         /// When a new player connects, send him the current state.
         /// </summary>
         /// <param name="newPlayer"></param>
-        public override void OnPhotonPlayerConnected(PhotonPlayer newPlayer)
+#if PUN_2_OR_NEWER
+        public override void OnPlayerEnteredRoom(Player newPlayer)  
         {
+            if (!PhotonNetwork.IsMasterClient) return;
+#else
+        public override void OnPhotonPlayerConnected(PhotonPlayer newPlayer)  
+            {
             if (!PhotonNetwork.isMasterClient) return;
+#endif
 
             if (syncedStateManager == null)
             {
-                if(debugLog) Logging.Warning(this, "syncedStateManager is null.");
+                if (debugLog) Logging.Warning(this, "syncedStateManager is null.");
                 return;
             }
 
-            if(debugLog) Logging.Log(this, "Master Client: Propagating current states to new players.");
-            
+            if (debugLog) Logging.Log(this, "Master Client: Propagating current states to new players.");
+
             foreach (var sm in syncedStateManager)
             {
                 sm.PropagateStatePhoton();
@@ -72,16 +113,6 @@ namespace UE.PUNNetworking
         }
 
         #endregion
-
-        void OnEnable()
-        {
-            PhotonNetwork.OnEventCall += OnEvent;
-        }
-
-        void OnDisable()
-        {
-            PhotonNetwork.OnEventCall -= OnEvent;
-        }
 
         #region Sending
 
@@ -95,7 +126,7 @@ namespace UE.PUNNetworking
         [Obsolete]
         public static void SendEvent(ISyncable syncable, byte eventCode, string name, int keyID)
         {
-            if (!syncable.PUNSyncEnabled || !PhotonNetwork.inRoom || syncable.MuteNetworkBroadcasting) return;
+            if (!syncable.PUNSyncEnabled || !InRoom() || syncable.MuteNetworkBroadcasting) return;
 
             var raiseEventOptions = new RaiseEventOptions()
             {
@@ -109,9 +140,9 @@ namespace UE.PUNNetworking
                 keyID,
             };
 
-            PhotonNetwork.RaiseEvent(eventCode, content, true, raiseEventOptions);
+            RaiseEvent(eventCode, content, raiseEventOptions);
         }
-        
+
         /// <summary>
         /// Sends an event with the given sync settings.
         /// </summary>
@@ -121,8 +152,8 @@ namespace UE.PUNNetworking
         /// <param name="keyID">This is used to identify instanced Objects.</param>
         public static void SendEvent(PhotonSync settings, byte eventCode, string name, int keyID)
         {
-            if (!settings.PUNSync || !PhotonNetwork.inRoom || settings.MuteNetworkBroadcasting) return;
-           
+            if (!settings.PUNSync || !InRoom() || settings.MuteNetworkBroadcasting) return;
+
             var raiseEventOptions = new RaiseEventOptions()
             {
                 CachingOption = settings.cachingOptions,
@@ -135,7 +166,7 @@ namespace UE.PUNNetworking
                 keyID,
             };
 
-            PhotonNetwork.RaiseEvent(eventCode, content, true, raiseEventOptions);
+            RaiseEvent(eventCode, content, raiseEventOptions);
         }
 
         /// <summary>
@@ -148,7 +179,7 @@ namespace UE.PUNNetworking
         [Obsolete]
         public static void SendEventParam<T>(ISyncable syncable, string name, int keyID, T parameter)
         {
-            if (!syncable.PUNSyncEnabled || !PhotonNetwork.inRoom || syncable.MuteNetworkBroadcasting) return;
+            if (!syncable.PUNSyncEnabled || !InRoom() || syncable.MuteNetworkBroadcasting) return;
 
             var raiseEventOptions = new RaiseEventOptions()
             {
@@ -163,9 +194,9 @@ namespace UE.PUNNetworking
                 parameter
             };
 
-            PhotonNetwork.RaiseEvent(TypeToCode(typeof(T)), content, true, raiseEventOptions);
+            RaiseEvent(TypeToCode(typeof(T)), content, raiseEventOptions);
         }
-        
+
         /// <summary>
         /// Sends a parameter event with the given sync settings.
         /// </summary>
@@ -176,7 +207,7 @@ namespace UE.PUNNetworking
         /// <typeparam name="T"></typeparam>
         public static void SendEventParam<T>(PhotonSync settings, string name, int keyID, T parameter)
         {
-            if (!settings.PUNSync|| !PhotonNetwork.inRoom || settings.MuteNetworkBroadcasting) return;
+            if (!settings.PUNSync || !InRoom() || settings.MuteNetworkBroadcasting) return;
 
             var raiseEventOptions = new RaiseEventOptions()
             {
@@ -191,7 +222,35 @@ namespace UE.PUNNetworking
                 parameter
             };
 
-            PhotonNetwork.RaiseEvent(TypeToCode(typeof(T)), content, true, raiseEventOptions);
+            RaiseEvent(TypeToCode(typeof(T)), content, raiseEventOptions);
+        }
+
+        /// <summary>
+        /// API-neutral call to PhotonNetwork.RaiseEvent.
+        /// </summary>
+        /// <param name="eventCode"></param>
+        /// <param name="content"></param>
+        /// <param name="raiseEventOptions"></param>
+        private static void RaiseEvent(byte eventCode, object content, RaiseEventOptions raiseEventOptions)
+        {
+#if PUN_2_OR_NEWER
+            PhotonNetwork.RaiseEvent(eventCode, content, raiseEventOptions, SendOptions.SendReliable);
+#else
+            PhotonNetwork.RaiseEvent(eventCode, content, true, raiseEventOptions);
+#endif
+        }
+
+        /// <summary>
+        /// API-neutral call to PhotonNetwork.InRoom
+        /// </summary>
+        /// <returns></returns>
+        private static bool InRoom()
+        {
+#if PUN_2_OR_NEWER
+            return PhotonNetwork.InRoom;
+#else
+            return PhotonNetwork.inRoom;
+#endif
         }
 
         /// <summary>
@@ -217,12 +276,12 @@ namespace UE.PUNNetworking
                 return EventRaiseUEVector2Event;
 
             if (type == typeof(Vector3))
-                return EventRaiseUEVector3Event;            
-            
+                return EventRaiseUEVector3Event;
+
             if (type == typeof(Quaternion))
                 return EventRaiseUEQuaternionEvent;
 
-            Logging.Error("Phyton Sync", "Trying to send a parameter event that cannot be serialized.");
+            Logging.Error("Photon Sync", "Trying to send a parameter event that cannot be serialized.");
             return 0;
         }
 
@@ -230,6 +289,27 @@ namespace UE.PUNNetworking
 
         #region Receiving
 
+#if PUN_2_OR_NEWER
+        /// <summary>
+        /// Receives a photon event in PUN 2.
+        /// </summary>
+        /// <param name="photonEvent"></param>
+        public void OnEvent(EventData photonEvent)
+        {
+            OnEvent(photonEvent.Code, photonEvent.CustomData, photonEvent.Sender);
+        }
+#else
+        void OnEnable()
+        {
+            PhotonNetwork.OnEventCall += OnEvent;
+        }
+
+        void OnDisable()
+        {
+            PhotonNetwork.OnEventCall -= OnEvent;
+        }
+#endif
+    
         /// <summary>
         /// Receives a photon event and calls the corresponding remote function.
         /// </summary>
@@ -239,7 +319,7 @@ namespace UE.PUNNetworking
         void OnEvent(byte eventcode, object content, int senderid)
         {
             var contentAr = content as object[];
-            
+
             switch (eventcode)
             {
                 case EventStateChange:
@@ -287,7 +367,7 @@ namespace UE.PUNNetworking
                     RemoteParameterEvent<Vector3, Vector3Event>(
                         contentAr[0] as string, ParseID(contentAr), (Vector3) contentAr[2]);
                     break;
-                
+
                 case EventRaiseUEQuaternionEvent:
 
                     RemoteParameterEvent<Quaternion, QuaternionEvent>(
@@ -318,7 +398,14 @@ namespace UE.PUNNetworking
 
             bool success;
             var gameEvent = CachedResources.Load<GameEvent>(eventName, out success);
-            if (!success) return;
+
+            if (!success) gameEvent = CachedResources.Load<GameEvent>(EventSubfolder + "/" + eventName, out success);
+
+            if (!success)
+            {
+                Logging.Error(this, eventName + " could not be found in a resources folder!");
+                return;
+            }
 
             gameEvent.MuteNetworkBroadcasting = true;
             if (key == -1) gameEvent.Raise(); //non-instanced
@@ -337,7 +424,14 @@ namespace UE.PUNNetworking
 
             bool success;
             var paramEvent = CachedResources.Load<TS>(eventName, out success);
-            if (!success) return;
+
+            if (!success) paramEvent = CachedResources.Load<TS>(EventSubfolder + "/" + eventName, out success);
+
+            if (!success)
+            {
+                Logging.Error(this, eventName + " could not be found in a resources folder!");
+                return;
+            }
 
             paramEvent.MuteNetworkBroadcasting = true;
             if (key == -1) paramEvent.Raise(value); //non-instanced
@@ -356,6 +450,9 @@ namespace UE.PUNNetworking
 
             bool success;
             var state = CachedResources.Load<State>(stateName, out success);
+
+            if (!success) state = CachedResources.Load<State>(StateMachineSubfolder + "/" + stateName, out success);
+
             if (!success)
             {
                 Logging.Error(this, stateName + " could not be found in a resources folder!");
