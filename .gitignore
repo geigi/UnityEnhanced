@@ -36,3 +36,4 @@ sysinfo.txt
 *.unitypackage
 UnityEnhanced.asmdef
 UnityEnhanced.asmdef.meta
+.DS_Store
